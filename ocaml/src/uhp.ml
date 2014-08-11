@@ -29,6 +29,7 @@ let state =
         pos = Vector.add pos (Vector.scale ay (movement_vect s))
     })
 
+(*
 let geodesic_through =
   let on_vertical x = cos x = 0. in
   fun {pos; dir} ->
@@ -37,7 +38,8 @@ let geodesic_through =
     then (Vertical (snd pos), if sin dir_rad > 0. then Forward else Backward)
     else Semi_circle
 
-let circle = let open Draw in let open Frp.Behavior in
+*)
+let player = let open Draw in let open Frp.Behavior in
   Draw.circle ~fill:(return Color.black)
     (map state ~f:(fun {pos=(_,y)} -> 0.15 *. y))
     (map state ~f:(fun {pos} -> pos))
@@ -75,9 +77,33 @@ let dir_arrow : Draw.t = let open Draw in let open Frp.Behavior in
       in
       [|translate pos; rotate dir; scale sf sf|]))
 
-let drawing = Draw.pictures [|dir_arrow; circle|]
-  
+let flip_button = Option.value_exn (Jq.jq "<button>Flip</button>")
+
+let flipped = Frp.scan (Jq.clicks flip_button) ~init:true ~f:(fun b _ -> not b)
+
+let check_box = Jq.create "input type='checkbox'"
+let checked = 
+  let check_box_node = Option.value_exn (Jq.to_dom_node check_box) in
+  Frp.latest ~init:false (Frp.Stream.map (Jq.clicks check_box) ~f:(fun _ ->
+    Js.to_bool (Js.Unsafe.get check_box_node (Js.string "checked"))))
+
+let drawing = let open Draw in
+  let flip = [|Transform.rotate (Angle.of_degrees 180.) ~about:(width' /. 2., height' /. 2.)|] in
+  let d =
+    transform (pictures [|dir_arrow; player|])
+      (Frp.Behavior.map flipped ~f:(fun is_flipped ->
+        if is_flipped
+        then flip
+        else [||]))
+  in
+  dynamic (Frp.Behavior.map checked ~f:(fun is_checked ->
+    if is_checked then pictures [|d; transform d (Frp.Behavior.return flip)|]
+    else d))
+
 let () =
   let main_container = Option.value_exn (Jq.jq "#container") in
   let (svg, sub) = Draw.render_svg_node ~width ~height drawing in
-  Jq.Dom.append (Option.value_exn (Jq.to_dom_node main_container)) svg
+  Jq.Dom.append (Option.value_exn (Jq.to_dom_node main_container)) svg;
+  Jq.insert_after main_container flip_button;
+  Jq.insert_after flip_button check_box
+
